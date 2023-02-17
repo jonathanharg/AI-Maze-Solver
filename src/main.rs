@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 #[derive(Debug, PartialEq)]
 enum Tile {
@@ -12,9 +12,10 @@ struct Maze {
     width: usize,
     height: usize,
     data: Vec<Tile>,
+    // visited: HashMap<Coord, Option<Coord>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Coord {
     x: usize,
     y: usize,
@@ -52,6 +53,7 @@ impl Maze {
             width,
             height,
             data,
+            // visited: HashMap::new(),
         };
     }
     fn get(&self, coord: Coord) -> Option<&Tile> {
@@ -91,6 +93,21 @@ impl Maze {
         }
     }
 
+    fn connected_paths(&self, coord: Coord) -> impl Iterator<Item = Coord> + '_ {
+        let cardinals: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+        cardinals
+            .into_iter()
+            .filter_map(move |(dx, dy)| {
+                Some(Coord {
+                    x: coord.x.checked_add_signed(dx)?,
+                    y: coord.y.checked_add_signed(dy)?,
+                })
+            })
+            .filter(|&nb_coord| {
+                self.inbounds(nb_coord) && *self.get(nb_coord).unwrap() != Tile::Wall
+            })
+    }
+
     fn neighbours(&self, coord: Coord) -> [Option<&Tile>; 4] {
         let north = self.get_offset(coord, 0, -1);
         let east = self.get_offset(coord, 1, 0);
@@ -98,6 +115,43 @@ impl Maze {
         let west = self.get_offset(coord, -1, 0);
 
         return [north, east, south, west];
+    }
+
+    fn dfs(&mut self, start: Coord, end: Coord) {
+        let mut visited: HashMap<Coord, Option<Coord>> = HashMap::new();
+        let mut stack = Vec::new();
+        visited.entry(start).or_insert(None);
+        stack.push(self.connected_paths(start));
+        println!("Starting at {:?}", start);
+
+        while !stack.is_empty() {
+            let last = stack.last_mut().unwrap();
+            match last.next() {
+                Some(neighbour) => {
+                    if !visited.contains_key(&neighbour) {
+                        println!("Visiting {:?}", neighbour);
+                        visited.insert(neighbour, Some(start));
+                        if neighbour == end {
+                            println!("Found end!");
+                            break;
+                        }
+                        stack.push(self.connected_paths(neighbour));
+                    }
+                }
+                None => {
+                    stack.pop();
+                }
+            };
+        }
+
+        let mut path = Vec::new();
+        let mut node = Some(end);
+        while node.is_some() && visited.contains_key(&node.unwrap()) {
+            path.insert(0, node.unwrap());
+            node = visited[&node.unwrap()];
+        }
+
+        println!("{:?}", path);
     }
 
     fn calculate_junctions(&mut self) {
@@ -159,6 +213,6 @@ fn main() {
     let maze_string = include_str!("../maze-Easy.txt");
     let mut grid = Maze::parse(maze_string);
 
-    grid.calculate_junctions();
     println!("{:?}", grid);
+    grid.dfs((1, 0).into(), (18, 9).into());
 }
