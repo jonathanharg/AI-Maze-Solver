@@ -1,40 +1,30 @@
-#![allow(dead_code)]
-use std::{collections::HashMap, fmt};
+mod coord;
+use crate::coord::Coord;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 #[derive(Debug, PartialEq)]
 enum Tile {
     Wall,
     Path,
-    Junction,
 }
 
 struct Maze {
     width: usize,
     height: usize,
     data: Vec<Tile>,
-    // visited: HashMap<Coord, Option<Coord>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-struct Coord {
-    x: usize,
-    y: usize,
-}
-
-impl From<(usize, usize)> for Coord {
-    fn from((x, y): (usize, usize)) -> Self {
-        Self { x, y }
-    }
 }
 
 impl Maze {
-    fn parse(text: &str) -> Maze {
+    fn read(text: &str) -> Maze {
         let height = text.trim().lines().count();
         let width = text
             .lines()
             .next()
             .expect("File should not be empty!")
-            .replace(" ", "")
+            .replace(' ', "")
             .trim()
             .len();
         let mut data: Vec<Tile> = Vec::new();
@@ -53,34 +43,15 @@ impl Maze {
             width,
             height,
             data,
-            // visited: HashMap::new(),
         };
     }
+
     fn get(&self, coord: Coord) -> Option<&Tile> {
-        if !self.inbounds(coord) {
+        if !self.is_inbounds(coord) {
             return None;
         }
         let index = (coord.y * self.width) + coord.x;
         return Some(&self.data[index]);
-    }
-
-    fn get_mut(&mut self, coord: Coord) -> Option<&mut Tile> {
-        if !self.inbounds(coord) {
-            return None;
-        }
-        let index = (coord.y * self.width) + coord.x;
-        return Some(&mut self.data[index]);
-    }
-
-    fn inbounds(&self, coord: Coord) -> bool {
-        return coord.x < self.width && coord.y < self.height;
-    }
-
-    fn is_edge(&self, coord: Coord) -> bool {
-        return coord.x == 0
-            || coord.x == self.width - 1
-            || coord.y == 0
-            || coord.y == self.height - 1;
     }
 
     fn get_offset(&self, coord: Coord, dx: isize, dy: isize) -> Option<&Tile> {
@@ -93,8 +64,19 @@ impl Maze {
         }
     }
 
-    fn connected_paths(&self, coord: Coord) -> impl Iterator<Item = Coord> + '_ {
-        let cardinals: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+    fn is_inbounds(&self, coord: Coord) -> bool {
+        return coord.x < self.width && coord.y < self.height;
+    }
+
+    fn is_edge(&self, coord: Coord) -> bool {
+        return coord.x == 0
+            || coord.x == self.width - 1
+            || coord.y == 0
+            || coord.y == self.height - 1;
+    }
+
+    fn neighbours_iter(&self, coord: Coord) -> impl Iterator<Item = Coord> + '_ {
+        let cardinals: [(isize, isize); 4] = [(-1, 0), (0, 1), (1, 0), (0, -1)];
         cardinals
             .into_iter()
             .filter_map(move |(dx, dy)| {
@@ -104,102 +86,99 @@ impl Maze {
                 })
             })
             .filter(|&nb_coord| {
-                self.inbounds(nb_coord) && *self.get(nb_coord).unwrap() != Tile::Wall
+                self.is_inbounds(nb_coord) && *self.get(nb_coord).unwrap() != Tile::Wall
             })
     }
 
-    fn neighbours(&self, coord: Coord) -> [Option<&Tile>; 4] {
-        let north = self.get_offset(coord, 0, -1);
-        let east = self.get_offset(coord, 1, 0);
-        let south = self.get_offset(coord, 0, 1);
-        let west = self.get_offset(coord, -1, 0);
-
-        return [north, east, south, west];
-    }
-
     fn dfs(&mut self, start: Coord, end: Coord) {
-        let mut visited: HashMap<Coord, Option<Coord>> = HashMap::new();
+        let mut previous: HashMap<Coord, Option<Coord>> = HashMap::new();
+        let mut visited: HashSet<Coord> = HashSet::new();
         let mut stack = Vec::new();
-        visited.entry(start).or_insert(None);
-        stack.push(self.connected_paths(start));
-        println!("Starting at {:?}", start);
+        stack.push(start);
+        previous.insert(start, None);
 
         while !stack.is_empty() {
-            let last = stack.last_mut().unwrap();
-            match last.next() {
-                Some(neighbour) => {
-                    if !visited.contains_key(&neighbour) {
-                        println!("Visiting {:?}", neighbour);
-                        visited.insert(neighbour, Some(start));
-                        if neighbour == end {
-                            println!("Found end!");
-                            break;
-                        }
-                        stack.push(self.connected_paths(neighbour));
-                    }
+            let node = stack.pop().unwrap();
+            visited.insert(node);
+            if node == end {
+                break;
+            }
+
+            self.neighbours_iter(node).for_each(|n| {
+                if !visited.contains(&n) {
+                    stack.push(n);
+                    previous.insert(n, Some(node));
                 }
-                None => {
-                    stack.pop();
-                }
-            };
+            });
         }
 
-        let mut path = Vec::new();
+        let mut path: Vec<Coord> = Vec::new();
         let mut node = Some(end);
-        while node.is_some() && visited.contains_key(&node.unwrap()) {
-            path.insert(0, node.unwrap());
-            node = visited[&node.unwrap()];
-        }
 
-        println!("{:?}", path);
+        while node.is_some() {
+            path.push(node.unwrap());
+            node = previous[&node.unwrap()];
+        }
+        path.reverse();
+
+        println!("Found path of length {}: {:?}", path.len(), path);
     }
 
-    fn calculate_junctions(&mut self) {
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let coord: Coord = (x, y).into();
-                let tile = self.get(coord).unwrap();
-
-                if *tile == Tile::Wall {
-                    continue;
+    fn parse(&self) {
+        for h in 0..self.height {
+            for w in 0..self.width {
+                let coord: Coord = (w, h).into();
+                if self.is_edge(coord) && *self.get(coord).unwrap() != Tile::Wall {
+                    println!("Found start/end at {}", coord);
                 }
-
-                let is_edge = self.is_edge(coord);
-
-                let wall_neighbours: Vec<bool> = self
-                    .neighbours(coord)
-                    .into_iter()
-                    .flatten()
-                    .map(|t| *t == Tile::Wall)
-                    .collect();
-
-                let not_two_walls = wall_neighbours.iter().filter(|&&t| t).count() != 2;
-
-                let is_corner = !wall_neighbours.windows(2).all(|t| t[0] != t[1]);
-
-                if is_edge || not_two_walls || is_corner {
-                    let tile = self.get_mut(coord).unwrap();
-                    *tile = Tile::Junction;
-                    continue;
+                if self.is_junction(coord) {
+                    // println!("Found junction at {:?}", coord);
                 }
             }
         }
+    }
+
+    fn is_junction(&self, coord: Coord) -> bool {
+        if *self.get(coord).unwrap() == Tile::Wall {
+            return false;
+        }
+
+        if self.is_edge(coord) {
+            return true;
+        }
+
+        let left = self.get_offset(coord, -1, 0);
+        let right = self.get_offset(coord, 1, 0);
+
+        if left != right {
+            return true;
+        }
+
+        let up = self.get_offset(coord, 0, -1);
+
+        if left == up {
+            return true;
+        }
+
+        let down = self.get_offset(coord, 0, -1);
+
+        return left == down;
     }
 }
 
 impl fmt::Debug for Maze {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        println!(
+        writeln!(
+            f,
             "Maze with width: {} and height: {}",
             self.width, self.height
-        );
+        )?;
         for y in 0..self.height {
             for x in 0..self.width {
                 let cell = self.get((x, y).into()).unwrap();
                 let c = match cell {
                     Tile::Wall => '#',
                     Tile::Path => '-',
-                    Tile::Junction => '+',
                 };
                 write!(f, "{c}")?;
             }
@@ -211,8 +190,19 @@ impl fmt::Debug for Maze {
 
 fn main() {
     let maze_string = include_str!("../maze-Easy.txt");
-    let mut grid = Maze::parse(maze_string);
+    let mut grid = Maze::read(maze_string);
 
+    grid.parse();
     println!("{:?}", grid);
-    grid.dfs((1, 0).into(), (18, 9).into());
+    use std::time::Instant;
+    let now = Instant::now();
+
+    // Code block to measure.
+    {
+        // grid.dfs((1,0).into(), (1880,999).into());
+        grid.dfs((1, 0).into(), (18, 9).into());
+    }
+
+    let elapsed = now.elapsed();
+    println!("Elapsed: {:.2?}", elapsed);
 }
