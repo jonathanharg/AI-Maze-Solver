@@ -180,11 +180,14 @@ fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
                 g.insert(neighbour, nbr_g);
                 f.insert(neighbour, nbr_g + h(neighbour, end));
                 let nbr_f = nbr_g + h(neighbour, end);
+                // Add to the queue if the node is not in the queue already
+                // If the node is in the queue already, only increase its priority
                 queue.push_increase(neighbour, Reverse(nbr_f));
             }
         });
     }
+    let visisted = from.len();
     let path = reconstruct_path(end, from);
 
-    return (path, 0);
+    return (path, visisted);
 }
