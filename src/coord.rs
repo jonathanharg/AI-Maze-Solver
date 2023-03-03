@@ -7,10 +7,13 @@ pub struct Coord {
 }
 
 impl From<(usize, usize)> for Coord {
+    // Implement a converter from two usize to a coordinate
     fn from((x, y): (usize, usize)) -> Self {
         Self { x, y }
     }
 }
+
+// Implement both normal and debug printing for coordinates
 
 impl fmt::Display for Coord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

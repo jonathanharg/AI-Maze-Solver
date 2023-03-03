@@ -10,9 +10,11 @@ pub enum Tile {
 pub struct Maze {
     pub width: usize,
     pub height: usize,
-    data: Vec<Tile>,
+    data: Vec<Tile>, // Store maze as a continuous list of Tiles
+    // we can calculate (x,y) coords from this list using the width & height
 }
 
+// Implement functions for the maze struct
 impl Maze {
     pub fn read(text: &str) -> Maze {
         let height = text.trim().lines().count();
@@ -65,7 +67,7 @@ impl Maze {
         let mut exit: Vec<Coord> = Vec::new();
         for y in 0..self.height {
             for x in 0..self.width {
-                let coord: Coord = (x, y).into();
+                let coord: Coord = (x, y).into(); // Converts tuple of ints into a coordinate
                 if self.is_edge(coord) && *self.get(coord).unwrap() == Tile::Path {
                     exit.push(coord);
                 }
@@ -75,35 +77,35 @@ impl Maze {
     }
 
     pub fn neighbours(&self, coord: Coord) -> impl Iterator<Item = Coord> + '_ {
-        let cardinals: [(isize, isize); 4] = [(-1, 0), (0, -1), (0, 1), (1, 0)]; // V cards - L, U, D, R
+        // Creates a lazily evaluated iterator over a coordinates neighbours
+
+        // Left, Up, Down, Right
+        let cardinals = [(-1, 0), (0, -1), (0, 1), (1, 0)];
         cardinals
-            .into_iter()
-            .filter_map(move |(dx, dy)| {
+            .into_iter() // start by iterating over the cardinal directions
+            .filter_map(move |(dx, dy)| { // map each direction to a possible coordinate
                 Some(Coord {
+                    // Signed add so that we cant do 0 - 1 and try get a negative coordinate
                     x: coord.x.checked_add_signed(dx)?,
                     y: coord.y.checked_add_signed(dy)?,
                 })
             })
             .filter(|&neighbour| {
+                // filter through the coordinates to make sure they are inbound and not walls.
                 self.is_inbounds(neighbour) && *self.get(neighbour).unwrap() != Tile::Wall
             })
     }
 }
 
 impl fmt::Debug for Maze {
+    // Implement a debug print for the Maze struct
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
             "Maze with width: {} and height: {}\n",
             self.width, self.height
         )?;
-        write!(f, " ")?;
-        for i in 0..self.width {
-            write!(f, "{}", i % 10)?;
-        }
-        writeln!(f)?;
         for y in 0..self.height {
-            write!(f, "{}", y % 10)?;
             for x in 0..self.width {
                 let cell = self.get((x, y).into()).unwrap();
                 let c = match cell {
@@ -114,6 +116,6 @@ impl fmt::Debug for Maze {
             }
             writeln!(f)?;
         }
-        Ok(())
+        return Ok(()); // return Ok if no errors occurred
     }
 }
