@@ -1,208 +1,107 @@
+// #![allow(unused_imports, dead_code)]
+// #![allow(clippy::needless_return)]
 mod coord;
+mod maze;
 use crate::coord::Coord;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-};
+use maze::Maze;
+use priority_queue::PriorityQueue;
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
+use std::time::Instant;
+use std::usize;
 
-#[derive(Debug, PartialEq)]
-enum Tile {
-    Wall,
-    Path,
+fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
+    fn h(a: Coord, b: Coord) -> usize {
+        return a.x.abs_diff(b.x) + a.y.abs_diff(b.y);
+    }
+    let mut open_queue = PriorityQueue::new();
+    let mut discovered_by: HashMap<Coord, Option<Coord>> = HashMap::new();
+    let mut g_score: HashMap<Coord, usize> = HashMap::new();
+    let mut f_score = HashMap::new();
+    open_queue.push(start, Reverse(h(start, end)));
+    discovered_by.insert(start, None);
+    g_score.insert(start, 0);
+    f_score.insert(start, h(start, end));
+
+    while !open_queue.is_empty() {
+        let current = open_queue.pop().unwrap().0;
+        if current == end {
+            break;
+        }
+
+        maze.neighbours(current).for_each(|neighbour| {
+            let temp_g_score = g_score.get(&current).unwrap_or(&(usize::MAX - 1)) + 1; // NOTE: Temp d score
+            if temp_g_score < *g_score.get(&neighbour).unwrap_or(&usize::MAX) {
+                discovered_by.insert(neighbour, Some(current));
+                let nbr_f_score = temp_g_score + h(neighbour, end);
+                g_score.insert(neighbour, temp_g_score);
+                f_score.insert(neighbour, temp_g_score + h(neighbour, end));
+                open_queue.push_increase(neighbour, Reverse(nbr_f_score));
+            }
+        });
+    }
+    let path = reconstruct_path(end, discovered_by);
+
+    return (path, 0);
 }
 
-struct Maze {
-    width: usize,
-    height: usize,
-    data: Vec<Tile>,
+fn dfs(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
+    let mut from: HashMap<Coord, Option<Coord>> = HashMap::new();
+    let mut visited = HashSet::new();
+    let mut stack = Vec::new();
+    stack.push(start);
+    from.insert(start, None);
+
+    while !stack.is_empty() {
+        let node = stack.pop().unwrap();
+        visited.insert(node);
+        if node == end {
+            break;
+        }
+
+        maze.neighbours(node).for_each(|n| {
+            if !visited.contains(&n) {
+                stack.push(n);
+                from.insert(n, Some(node));
+            }
+        });
+    }
+
+    let path = reconstruct_path(end, from);
+
+    return (path, visited.len());
 }
 
-impl Maze {
-    fn read(text: &str) -> Maze {
-        let height = text.trim().lines().count();
-        let width = text
-            .lines()
-            .next()
-            .expect("File should not be empty!")
-            .replace(' ', "")
-            .trim()
-            .len();
-        let mut data: Vec<Tile> = Vec::new();
+fn reconstruct_path(end: Coord, from: HashMap<Coord, Option<Coord>>) -> Vec<Coord> {
+    let mut path: Vec<Coord> = Vec::new();
+    let mut backtrack_node = Some(end);
 
-        for char in text.chars() {
-            let cell = match char {
-                '-' => Tile::Path,
-                '#' => Tile::Wall,
-                '\n' | '\r' | ' ' => continue,
-                _ => panic!("Unexpected character '{char}' in maze!"),
-            };
-            data.push(cell);
-        }
-
-        return Maze {
-            width,
-            height,
-            data,
-        };
+    while backtrack_node.is_some() {
+        path.push(backtrack_node.unwrap());
+        backtrack_node = *from.get(&backtrack_node.unwrap()).expect("No path found from start to end, the maze may not be solvable!");
     }
+    path.reverse();
 
-    fn get(&self, coord: Coord) -> Option<&Tile> {
-        if !self.is_inbounds(coord) {
-            return None;
-        }
-        let index = (coord.y * self.width) + coord.x;
-        return Some(&self.data[index]);
-    }
-
-    fn get_offset(&self, coord: Coord, dx: isize, dy: isize) -> Option<&Tile> {
-        let new_y = coord.y.checked_add_signed(dy);
-        let new_x = coord.x.checked_add_signed(dx);
-
-        match (new_x, new_y) {
-            (Some(x), Some(y)) => self.get((x, y).into()),
-            _ => None,
-        }
-    }
-
-    fn is_inbounds(&self, coord: Coord) -> bool {
-        return coord.x < self.width && coord.y < self.height;
-    }
-
-    fn is_edge(&self, coord: Coord) -> bool {
-        return coord.x == 0
-            || coord.x == self.width - 1
-            || coord.y == 0
-            || coord.y == self.height - 1;
-    }
-
-    fn neighbours_iter(&self, coord: Coord) -> impl Iterator<Item = Coord> + '_ {
-        let cardinals: [(isize, isize); 4] = [(-1, 0), (0, 1), (1, 0), (0, -1)];
-        cardinals
-            .into_iter()
-            .filter_map(move |(dx, dy)| {
-                Some(Coord {
-                    x: coord.x.checked_add_signed(dx)?,
-                    y: coord.y.checked_add_signed(dy)?,
-                })
-            })
-            .filter(|&nb_coord| {
-                self.is_inbounds(nb_coord) && *self.get(nb_coord).unwrap() != Tile::Wall
-            })
-    }
-
-    fn dfs(&mut self, start: Coord, end: Coord) {
-        let mut previous: HashMap<Coord, Option<Coord>> = HashMap::new();
-        let mut visited: HashSet<Coord> = HashSet::new();
-        let mut stack = Vec::new();
-        stack.push(start);
-        previous.insert(start, None);
-
-        while !stack.is_empty() {
-            let node = stack.pop().unwrap();
-            visited.insert(node);
-            if node == end {
-                break;
-            }
-
-            self.neighbours_iter(node).for_each(|n| {
-                if !visited.contains(&n) {
-                    stack.push(n);
-                    previous.insert(n, Some(node));
-                }
-            });
-        }
-
-        let mut path: Vec<Coord> = Vec::new();
-        let mut node = Some(end);
-
-        while node.is_some() {
-            path.push(node.unwrap());
-            node = previous[&node.unwrap()];
-        }
-        path.reverse();
-
-        println!("Found path of length {}: {:?}", path.len(), path);
-    }
-
-    fn parse(&self) {
-        for h in 0..self.height {
-            for w in 0..self.width {
-                let coord: Coord = (w, h).into();
-                if self.is_edge(coord) && *self.get(coord).unwrap() != Tile::Wall {
-                    println!("Found start/end at {}", coord);
-                }
-                if self.is_junction(coord) {
-                    // println!("Found junction at {:?}", coord);
-                }
-            }
-        }
-    }
-
-    fn is_junction(&self, coord: Coord) -> bool {
-        if *self.get(coord).unwrap() == Tile::Wall {
-            return false;
-        }
-
-        if self.is_edge(coord) {
-            return true;
-        }
-
-        let left = self.get_offset(coord, -1, 0);
-        let right = self.get_offset(coord, 1, 0);
-
-        if left != right {
-            return true;
-        }
-
-        let up = self.get_offset(coord, 0, -1);
-
-        if left == up {
-            return true;
-        }
-
-        let down = self.get_offset(coord, 0, -1);
-
-        return left == down;
-    }
-}
-
-impl fmt::Debug for Maze {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "Maze with width: {} and height: {}",
-            self.width, self.height
-        )?;
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let cell = self.get((x, y).into()).unwrap();
-                let c = match cell {
-                    Tile::Wall => '#',
-                    Tile::Path => '-',
-                };
-                write!(f, "{c}")?;
-            }
-            writeln!(f)?;
-        }
-        Ok(())
-    }
+    return path;
 }
 
 fn main() {
-    let maze_string = include_str!("../maze-Easy.txt");
-    let mut grid = Maze::read(maze_string);
+    let maze_string = include_str!("../maze-Debug2.txt");
+    let maze = Maze::read(maze_string);
 
-    grid.parse();
-    println!("{:?}", grid);
-    use std::time::Instant;
-    let now = Instant::now();
+    // println!("{:?}", maze);
+    let exits = maze.get_exits();
+    let start = exits.get(0).expect("Maze does not have an enterance or exit!");
+    let exit = exits.get(1).expect("Maze does not have an exit!");
 
-    // Code block to measure.
-    {
-        // grid.dfs((1,0).into(), (1880,999).into());
-        grid.dfs((1, 0).into(), (18, 9).into());
-    }
+    let a_star_start = Instant::now();
+    let (a_star_path, a_star_explored) = a_star(&maze, *start, *exit);
+    let a_star_time = a_star_start.elapsed();
 
-    let elapsed = now.elapsed();
-    println!("Elapsed: {:.2?}", elapsed);
+    let dfs_start = Instant::now();
+    let (dfs_path, dfs_explored) = dfs(&maze, *start, *exit);
+    let dfs_time = dfs_start.elapsed();
+
+    println!("DFS: Path len {}, explored {} in {:?}", dfs_path.len(), dfs_explored, dfs_time);
+    println!("A*: Path len {}, explored {} in {:?}", a_star_path.len(), a_star_explored, a_star_time);
 }
