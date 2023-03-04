@@ -2,86 +2,94 @@
 mod coord;
 mod maze;
 use crate::coord::Coord;
-use clap::{arg, command, value_parser};
+use clap::{arg, command, value_parser, ArgAction};
+use hashbrown::hash_map::DefaultHashBuilder;
 use maze::Maze;
 use priority_queue::PriorityQueue;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::{fs, usize};
 
 fn main() {
     // Setup Command Line Arguments
     let user_input = command!()
-        .arg(arg!(<maze> "The maze to search").value_parser(value_parser!(PathBuf)))
-        .arg(arg!(-s --show "Show the parsed maze").num_args(0))
-        .arg(arg!(-a --"a-star" "Search the maze with A*").num_args(0))
-        .arg(arg!(-d --dfs "Search the maze with DFS").num_args(0))
-        .arg(arg!(-r --"hide-route" "Hide the route taken").num_args(0))
+        .arg(
+            arg!(<maze> "The maze to search")
+                .value_parser(value_parser!(PathBuf))
+                .action(ArgAction::Append),
+        )
+        .arg(arg!(-s --show "Show the parsed maze").action(ArgAction::SetTrue))
+        .arg(arg!(-a --"a-star" "Search the maze with A*").action(ArgAction::SetTrue))
+        .arg(arg!(-d --dfs "Search the maze with DFS").action(ArgAction::SetTrue))
+        .arg(arg!(-r --"hide-route" "Hide the route taken").action(ArgAction::SetTrue))
         .get_matches();
 
-    let file = user_input
-        .get_one::<PathBuf>("maze")
-        .expect("Maze path should be provided!");
-
-    let maze_string = fs::read_to_string(file).expect("Should be able to read the maze file!");
-    let maze = Maze::read(&maze_string);
-
     // Get the flags the user set, defaults to false
-    let mut use_a_star = *user_input.get_one::<bool>("a-star").unwrap_or(&false);
-    let mut use_dfs = *user_input.get_one::<bool>("dfs").unwrap_or(&false);
-    let show_maze = *user_input.get_one::<bool>("show").unwrap_or(&false);
-    let hide_route = *user_input.get_one::<bool>("hide-route").unwrap_or(&false);
+    let mut use_a_star = user_input.get_flag("a-star");
+    let mut use_dfs = user_input.get_flag("dfs");
+    let show_maze = user_input.get_flag("show");
+    let hide_route = user_input.get_flag("hide-route");
 
-    if show_maze {
-        println!("{:?}", maze);
-    }
+    user_input
+        .get_many("maze")
+        .unwrap()
+        .for_each(|file: &PathBuf| {
+            let maze_string =
+                fs::read_to_string(file).expect("Should be able to read the maze file!");
+            let maze = Maze::read(&maze_string);
 
-    // If no search algorithm is specified, use both
-    if !use_a_star && !use_dfs {
-        use_a_star = true;
-        use_dfs = true;
-    }
+            println!("Searching {}", file.display());
+            if show_maze {
+                println!("{:?}", maze);
+            }
 
-    // Here an "expect" exception is thrown if the start/exit are not found
-    let exits = maze.get_exits();
-    let start = exits
-        .get(0)
-        .expect("Maze does not have an entrance or exit!");
-    let exit = exits.get(1).expect("Maze does not have an exit!");
+            // If no search algorithm is specified, use both
+            if !use_a_star && !use_dfs {
+                use_a_star = true;
+                use_dfs = true;
+            }
 
-    if use_dfs {
-        use std::time::Instant;
-        let now = Instant::now();
-        let (path, explored) = dfs(&maze, *start, *exit);
-        let time = now.elapsed();
+            // Here an "expect" exception is thrown if the start/exit are not found
+            let exits = maze.get_exits();
+            let start = exits
+                .get(0)
+                .expect("Maze does not have an entrance or exit!");
+            let exit = exits.get(1).expect("Maze does not have an exit!");
 
-        println!(
-            "DFS: Path len {}, explored {} tiles in {:?}",
-            path.len(),
-            explored,
-            time
-        );
-        if !hide_route {
-            println!("DFS Route: {:?}\n", path)
-        }
-    }
+            if use_dfs {
+                use std::time::Instant;
+                let now = Instant::now();
+                let (path, explored) = dfs(&maze, *start, *exit);
+                let time = now.elapsed();
 
-    if use_a_star {
-        use std::time::Instant;
-        let now = Instant::now();
-        let (path, explored) = a_star(&maze, *start, *exit);
-        let time = now.elapsed();
-        println!(
-            "A*: Path len {}, explored {} tiles in {:?}",
-            path.len(),
-            explored,
-            time
-        );
-        if !hide_route {
-            println!("A* Route: {:?}\n", path)
-        }
-    }
+                println!(
+                    "DFS: Path len {}, explored {} nodes in {:?}",
+                    path.len(),
+                    explored,
+                    time
+                );
+                if !hide_route {
+                    println!("DFS Route: {:?}\n", path)
+                }
+            }
+
+            if use_a_star {
+                use std::time::Instant;
+                let now = Instant::now();
+                let (path, explored) = a_star(&maze, *start, *exit);
+                let time = now.elapsed();
+                println!(
+                    "A*: Path len {}, explored {} nodes in {:?}",
+                    path.len(),
+                    explored,
+                    time
+                );
+                if !hide_route {
+                    println!("A* Route: {:?}\n", path)
+                }
+            }
+        });
 }
 
 fn dfs(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
@@ -90,8 +98,8 @@ fn dfs(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
 
     // HashMap (Dictionary) to reconstruct the path taken, for each Coordinate we remember an optional
     // coordinate (either Some coordinate it came from or None).
-    let mut from: HashMap<Coord, Option<Coord>> = HashMap::new();
-    let mut visited = HashSet::new();
+    let mut from: FxHashMap<Coord, Option<Coord>> = FxHashMap::default();
+    let mut visited = FxHashSet::default();
     let mut stack = Vec::new();
 
     stack.push(start);
@@ -118,7 +126,7 @@ fn dfs(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
     return (path, visited.len());
 }
 
-fn reconstruct_path(end: Coord, from: HashMap<Coord, Option<Coord>>) -> Vec<Coord> {
+fn reconstruct_path(end: Coord, from: FxHashMap<Coord, Option<Coord>>) -> Vec<Coord> {
     // Reconstructs the path taken from the 'from' hash map.
     let mut path: Vec<Coord> = Vec::new();
     let mut previous_node = Some(end);
@@ -148,18 +156,19 @@ fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
     }
 
     // Each nodes g score, shortest known path from the start
-    let mut g: HashMap<Coord, usize> = HashMap::new();
+    let mut g: FxHashMap<Coord, usize> = FxHashMap::default();
     g.insert(start, 0);
     // Each nodes f score, the g score (shortest path from start) + heuristic
-    let mut f = HashMap::new();
+    let mut f = FxHashMap::default();
     f.insert(start, h(start, end));
     //Priority Queue (min-heap) of nodes sorted by the lowest f score
     // 'Reverse' is used to sort the queue from smallest f to largest f (since priority queues
     // default largest to smallest)
-    let mut queue = PriorityQueue::new();
+    let mut queue =
+        PriorityQueue::<Coord, Reverse<usize>, DefaultHashBuilder>::with_default_hasher();
     queue.push(start, Reverse(h(start, end)));
 
-    let mut from: HashMap<Coord, Option<Coord>> = HashMap::new();
+    let mut from: FxHashMap<Coord, Option<Coord>> = FxHashMap::default();
     from.insert(start, None);
 
     while !queue.is_empty() {
