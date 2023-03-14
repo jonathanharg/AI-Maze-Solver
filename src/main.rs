@@ -1,8 +1,8 @@
 #![allow(clippy::needless_return)]
 mod coord;
 mod maze;
-use crate::coord::Coord;
 use clap::{arg, command, value_parser, ArgAction};
+use coord::Coord;
 use hashbrown::hash_map::DefaultHashBuilder;
 use maze::Maze;
 use priority_queue::PriorityQueue;
@@ -15,13 +15,13 @@ fn main() {
     // Setup Command Line Arguments
     let user_input = command!()
         .arg(
-            arg!(<maze> "The maze to search")
+            arg!(<maze> "The maze or mazes to search")
                 .value_parser(value_parser!(PathBuf))
                 .action(ArgAction::Append),
         )
         .arg(arg!(-s --show "Show the parsed maze").action(ArgAction::SetTrue))
-        .arg(arg!(-a --"a-star" "Search the maze with A*").action(ArgAction::SetTrue))
-        .arg(arg!(-d --dfs "Search the maze with DFS").action(ArgAction::SetTrue))
+        .arg(arg!(-a --"a-star" "Search the maze with A*. If no search algorithm is provided, both are used.").action(ArgAction::SetTrue))
+        .arg(arg!(-d --dfs "Search the maze with DFS. If no search algorithm is provided, both are used.").action(ArgAction::SetTrue))
         .arg(arg!(-r --"hide-route" "Hide the route taken").action(ArgAction::SetTrue))
         .get_matches();
 
@@ -31,6 +31,13 @@ fn main() {
     let show_maze = user_input.get_flag("show");
     let hide_route = user_input.get_flag("hide-route");
 
+    // If no search algorithm is specified, use both
+    if !use_a_star && !use_dfs {
+        use_a_star = true;
+        use_dfs = true;
+    }
+
+    // Loop over all given mazes and
     user_input
         .get_many("maze")
         .unwrap()
@@ -44,49 +51,43 @@ fn main() {
                 println!("{:?}", maze);
             }
 
-            // If no search algorithm is specified, use both
-            if !use_a_star && !use_dfs {
-                use_a_star = true;
-                use_dfs = true;
-            }
-
-            // Here an "expect" exception is thrown if the start/exit are not found
             let exits = maze.get_exits();
             let start = exits
                 .get(0)
                 .expect("Maze does not have an entrance or exit!");
             let exit = exits.get(1).expect("Maze does not have an exit!");
+            // Here an "expect" exception is thrown if the start/exit are not found
 
             if use_dfs {
                 use std::time::Instant;
                 let now = Instant::now();
-                let (path, explored) = dfs(&maze, *start, *exit);
+                let (route, explored) = dfs(&maze, *start, *exit);
                 let time = now.elapsed();
 
                 println!(
-                    "DFS: Path len {}, explored {} nodes in {:?}",
-                    path.len(),
+                    "DFS: Found route with length {}! explored {} nodes in {:?}.",
+                    route.len(),
                     explored,
                     time
                 );
                 if !hide_route {
-                    println!("DFS Route: {:?}\n", path)
+                    println!("DFS Route: {:?}\n", route)
                 }
             }
 
             if use_a_star {
                 use std::time::Instant;
                 let now = Instant::now();
-                let (path, explored) = a_star(&maze, *start, *exit);
+                let (route, explored) = a_star(&maze, *start, *exit);
                 let time = now.elapsed();
                 println!(
-                    "A*: Path len {}, explored {} nodes in {:?}",
-                    path.len(),
+                    "A*: Found route with length {}! explored {} nodes in {:?}.",
+                    route.len(),
                     explored,
                     time
                 );
                 if !hide_route {
-                    println!("A* Route: {:?}\n", path)
+                    println!("A* Route: {:?}\n", route)
                 }
             }
         });
@@ -96,9 +97,10 @@ fn dfs(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
     // Implementation of depth first search, returns the route taken as a vector (list) of Coordinates
     // and also the number of nodes explored as a usize (unsigned pointer-size integer: 32/64 bits)
 
-    // HashMap (Dictionary) to reconstruct the path taken, for each Coordinate we remember an optional
+    // HashMap (Dictionary) to reconstruct the route taken. For each Coordinate we remember an optional
     // coordinate (either Some coordinate it came from or None).
     let mut from: FxHashMap<Coord, Option<Coord>> = FxHashMap::default();
+    // HashSet which will contain visited nodes.
     let mut visited = FxHashSet::default();
     let mut stack = Vec::new();
 
@@ -110,39 +112,42 @@ fn dfs(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
         visited.insert(current);
 
         if current == end {
+            // We have found the end of the maze, we can stop now.
             break;
         }
 
         maze.neighbours(current).for_each(|neighbour| {
+            // If we haven't visited this neighbour
             if !visited.contains(&neighbour) {
                 stack.push(neighbour);
                 from.insert(neighbour, Some(current));
+                // Remember where we visited this node from
             }
         });
     }
 
-    let path = reconstruct_path(end, from);
+    let route = reconstruct_route(end, from);
 
-    return (path, visited.len());
+    return (route, visited.len());
 }
 
-fn reconstruct_path(end: Coord, from: FxHashMap<Coord, Option<Coord>>) -> Vec<Coord> {
-    // Reconstructs the path taken from the 'from' hash map.
-    let mut path: Vec<Coord> = Vec::new();
+fn reconstruct_route(end: Coord, from: FxHashMap<Coord, Option<Coord>>) -> Vec<Coord> {
+    // Reconstructs the route taken from the 'from' hash map.
+    let mut route: Vec<Coord> = Vec::new();
     let mut previous_node = Some(end);
 
     // While a previous node exists
     while let Some(node) = previous_node {
-        path.push(node);
+        route.push(node);
         previous_node = *from
             .get(&node)
-            .expect("No path found from start to end, the maze is not solvable!");
+            .expect("No route found from start to end, the maze is not solvable!");
     }
 
-    // We have calculated the path backwards from the end, so reverse it.
-    path.reverse();
+    // We have calculated the route backwards from the end, so reverse it.
+    route.reverse();
 
-    return path;
+    return route;
 }
 
 fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
@@ -150,17 +155,21 @@ fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
     // the number of nodes explored.
 
     // The heuristic function, the absolute distance between a & b, i.e. Manhattan Distance
-    // h estimates the distance between a & b
+    // h estimates the distance between a & b. Since we can only move horizontally or vertically
+    // one step at a time, this is one of the best heuristics.
     fn h(a: Coord, b: Coord) -> usize {
         return a.x.abs_diff(b.x) + a.y.abs_diff(b.y);
     }
 
-    // Each nodes g score, shortest known path from the start
+    // Each nodes g score, shortest known route from the start
+    // Initialize an empty HashMap with a Coordinate key and unsigned int value.
     let mut g: FxHashMap<Coord, usize> = FxHashMap::default();
-    g.insert(start, 0);
-    // Each nodes f score, the g score (shortest path from start) + heuristic
+    g.insert(start, 0); //the distance from the start to the start is always zero.
+
+    // Each nodes f score: the g score (shortest route from start) + heuristic
     let mut f = FxHashMap::default();
     f.insert(start, h(start, end));
+
     //Priority Queue (min-heap) of nodes sorted by the lowest f score
     // 'Reverse' is used to sort the queue from smallest f to largest f (since priority queues
     // default largest to smallest)
@@ -172,9 +181,11 @@ fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
     from.insert(start, None);
 
     while !queue.is_empty() {
+        // Get the coordinate with the lowest f score from the priority queue
         let current = queue.pop().unwrap().0;
 
         if current == end {
+            // We've found the end, and can stop.
             break;
         }
 
@@ -183,8 +194,9 @@ fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
             let nbr_g = g.get(&current).unwrap() + 1;
 
             // If the new g is less than the neighbours known g
-            // if no g is known unwrap (default) the value to be the maximum integer
+            // if the g score is None, default the value to be the maximum integer
             if nbr_g < *g.get(&neighbour).unwrap_or(&usize::MAX) {
+                // Update the neighbour to be visited by the current node
                 from.insert(neighbour, Some(current));
                 g.insert(neighbour, nbr_g);
                 f.insert(neighbour, nbr_g + h(neighbour, end));
@@ -195,8 +207,8 @@ fn a_star(maze: &Maze, start: Coord, end: Coord) -> (Vec<Coord>, usize) {
             }
         });
     }
-    let visisted = from.len();
-    let path = reconstruct_path(end, from);
+    let visited = from.len();
+    let route = reconstruct_route(end, from);
 
-    return (path, visisted);
+    return (route, visited);
 }

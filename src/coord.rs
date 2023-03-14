@@ -1,3 +1,4 @@
+// Functions & structures for storing, parsing and printing maze coordinates
 use std::fmt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -7,9 +8,9 @@ pub struct Coord {
 }
 
 impl From<(usize, usize)> for Coord {
-    // Implement a converter from two usize to a coordinate
+    // Implement a converter from a tuple of usize to a coordinate
     fn from((x, y): (usize, usize)) -> Self {
-        Self { x, y }
+        return Self { x, y };
     }
 }
 

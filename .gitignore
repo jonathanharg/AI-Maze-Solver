@@ -1,2 +1,8 @@
 /target
 .DS_Store
+_minted-writeup/
+*.aux
+*.log
+*.out
+/maze-solver
+maze-solver.zip

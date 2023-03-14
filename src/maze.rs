@@ -1,3 +1,4 @@
+// Functions & structures related to reading, parsing, storing and manipulating a text based maze.
 use crate::coord::Coord;
 use std::fmt;
 
@@ -36,6 +37,8 @@ impl Maze {
             };
             data.push(cell);
         }
+
+        assert!(data.len() == width * height, "Maze has inconsistent line lengths!");
 
         return Maze {
             width,
@@ -86,7 +89,8 @@ impl Maze {
             .filter_map(move |(dx, dy)| {
                 // map each direction to a possible coordinate
                 Some(Coord {
-                    // Signed add so that we cant do 0 - 1 and try get a negative coordinate
+                    // Checked and Signed add so that if we try do 0 - 1 Rust
+                    // will catch the error, ignore it, and move onto the next direction
                     x: coord.x.checked_add_signed(dx)?,
                     y: coord.y.checked_add_signed(dy)?,
                 })
